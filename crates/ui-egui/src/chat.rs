@@ -347,6 +347,7 @@ fn composer(app: &mut CraftApp, ui: &mut Ui, width: f32, dense: bool) {
                 name: "Ask a question",
                 hint,
                 min_rows: if dense { 3 } else { 2 },
+                text_height_limit: None,
                 attach: None,
                 previews: &[],
                 stop_button: answering.then_some("Stop"),

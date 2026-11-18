@@ -26,6 +26,8 @@ pub struct PromptBox<'a> {
     pub hint: String,
     /// The number of rows visible in an empty editor.
     pub min_rows: usize,
+    /// Space a docked composer can spare after accounting for its other controls.
+    pub text_height_limit: Option<f32>,
     /// The paperclip's tooltip; `None` hides it (no attachments here).
     pub attach: Option<&'a str>,
     /// A small picture of each attachment, in order, once it's decoded (`CraftApp::previews`).
@@ -116,6 +118,8 @@ fn browse(ui: &mut Ui, id: egui::Id, text: &mut String, attachments: &[PathBuf],
 /// What the person did with it this frame.
 #[derive(Default)]
 pub struct PromptOut {
+    /// The height the text viewport actually used, excluding the rest of the box.
+    pub text_height: f32,
     /// Send was pressed (button or Enter) with something to send.
     pub send: bool,
     pub attach: bool,
@@ -226,11 +230,11 @@ pub fn show(ui: &mut Ui, text: &mut String, attachments: &[PathBuf], b: PromptBo
             // No "more below" fade: the frame after each keystroke the scroll area briefly
             // measures a few points of overflow, and the fade blinked over the line being typed.
             ui.spacing_mut().scroll.fade.strength = 0.0;
-            let height = text_viewport_height(line, b.min_rows, ui.clip_rect().height());
+            let height = text_viewport_height(line, b.min_rows, ui.clip_rect().height(), b.text_height_limit);
             // The feed leaves the box only as much room as it used last frame. Allow the scroll
             // area to claim more than that as the draft grows. It still shrinks to fit short drafts.
             let editor = egui::ScrollArea::vertical().id_salt(id.with("scroll")).min_scrolled_height(height).max_height(height).stick_to_bottom(true);
-            editor.show(ui, |ui| {
+            let viewport = editor.show(ui, |ui| {
                 let r = ui.add(
                     egui::TextEdit::multiline(text)
                         .id(id)
@@ -254,6 +258,7 @@ pub fn show(ui: &mut Ui, text: &mut String, attachments: &[PathBuf], b: PromptBo
                     out.send = true;
                 }
             });
+            out.text_height = viewport.inner_rect.height();
             // A paste of a picture never reaches the text field: it's attached instead, when the box
             // has the focus or nothing else does.
             let pasted = b.attach.is_some() && crate::paste::picture_wanted(ui.ctx());
@@ -315,9 +320,10 @@ fn fit(size: egui::Vec2, max: egui::Vec2) -> egui::Vec2 {
     size * (max.x / size.x).min(max.y / size.y)
 }
 
-/// Leave room for the conversation in short panes. Always fit the empty editor, including its padding.
-fn text_viewport_height(line: f32, min_rows: usize, pane_height: f32) -> f32 {
-    (pane_height * 0.4).min(208.0).max(line * min_rows as f32 + 4.0)
+/// Show about ten lines at the normal text size. Leave more room for the conversation and
+/// controls in a short pane, while keeping the empty editor and its padding visible.
+fn text_viewport_height(line: f32, min_rows: usize, pane_height: f32, limit: Option<f32>) -> f32 {
+    (pane_height * 0.4).min(208.0).min(limit.unwrap_or(f32::INFINITY)).max(line * min_rows as f32 + 4.0)
 }
 
 /// What Tab would complete the box to, when it starts with a partial command name. Only the
@@ -405,9 +411,10 @@ mod tests {
 
     #[test]
     fn a_long_prompt_scrolls_sooner_in_a_short_pane() {
-        assert_eq!(text_viewport_height(20.0, 2, 300.0), 120.0);
-        assert_eq!(text_viewport_height(20.0, 2, 1400.0), 208.0);
-        assert_eq!(text_viewport_height(20.0, 3, 100.0), 64.0);
+        assert_eq!(text_viewport_height(20.0, 2, 300.0, None), 120.0);
+        assert_eq!(text_viewport_height(20.0, 2, 1400.0, None), 208.0);
+        assert_eq!(text_viewport_height(20.0, 3, 100.0, None), 64.0);
+        assert_eq!(text_viewport_height(20.0, 2, 500.0, Some(90.0)), 90.0);
     }
 
     #[test]
@@ -454,6 +461,7 @@ mod tests {
                     name: "Box",
                     hint: String::new(),
                     min_rows: 1,
+                    text_height_limit: None,
                     attach: Some("Attach"),
                     previews: &previews,
                     stop_button: None,
@@ -511,6 +519,7 @@ mod tests {
                         name: "Ask for a change",
                         hint: String::new(),
                         min_rows: 1,
+                        text_height_limit: None,
                         attach: None,
                         previews: &[],
                         stop_button: Some("Pause"),

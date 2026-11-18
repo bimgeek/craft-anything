@@ -192,6 +192,7 @@ mod tests {
                     name: "Ask for a change",
                     hint: String::new(),
                     min_rows: 1,
+                    text_height_limit: None,
                     attach: attach.then_some("Attach pictures"),
                     previews: &[],
                     stop_button: None,

@@ -2495,6 +2495,25 @@ six"
 }
 
 #[test]
+fn a_long_draft_leaves_send_visible_below_the_plan_in_a_short_window() {
+    use craft_anything_ui_egui::state::{FeedItem, PlanStatus, PlanStep};
+    let mut h = harness_sized(egui::vec2(760.0, 650.0), || {
+        let mut app = demo::app(demo::engine(Mode::Beginner, true));
+        demo::fill_project(&mut app);
+        let steps = (1..=40).map(|n| PlanStep { text: format!("Step {n}"), doing: String::new(), status: PlanStatus::Todo }).collect();
+        app.state.feed.push(FeedItem::Plan(steps));
+        app
+    });
+    h.run_steps(6);
+    let before = h.get_by_label("Send (Enter)").rect();
+    assert!(before.bottom() <= 650.0, "Send starts in the window: {before:?}");
+    h.state_mut().state.project_input = ["A long draft in a short pane."; 60].join("\n");
+    h.run_steps(6);
+    let after = h.get_by_label("Send (Enter)").rect();
+    assert!(after.bottom() <= 650.0, "Send stays in the window: {after:?}");
+}
+
+#[test]
 fn nothing_blinks_over_the_text_while_typing() {
     use craft_anything_engine::workspace::{TargetRef, Workspace};
     // Everything painted over a spot of the typed text, after the text itself.
