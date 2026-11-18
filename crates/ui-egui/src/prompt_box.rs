@@ -258,7 +258,8 @@ pub fn show(ui: &mut Ui, text: &mut String, attachments: &[PathBuf], b: PromptBo
                     out.send = true;
                 }
             });
-            out.text_height = viewport.inner_rect.height();
+            // egui returns the viewport before auto-shrink applies the content height.
+            out.text_height = viewport.content_size.y.min(viewport.inner_rect.height());
             // A paste of a picture never reaches the text field: it's attached instead, when the box
             // has the focus or nothing else does.
             let pasted = b.attach.is_some() && crate::paste::picture_wanted(ui.ctx());
@@ -323,7 +324,7 @@ fn fit(size: egui::Vec2, max: egui::Vec2) -> egui::Vec2 {
 /// Show about ten lines at the normal text size. Leave more room for the conversation and
 /// controls in a short pane, while keeping the empty editor and its padding visible.
 fn text_viewport_height(line: f32, min_rows: usize, pane_height: f32, limit: Option<f32>) -> f32 {
-    (pane_height * 0.4).min(208.0).min(limit.unwrap_or(f32::INFINITY)).max(line * min_rows as f32 + 4.0)
+    (pane_height * 0.4).min(theme::PROMPT_VIEWPORT_MAX).min(limit.unwrap_or(f32::INFINITY)).max(line * min_rows as f32 + 4.0)
 }
 
 /// What Tab would complete the box to, when it starts with a partial command name. Only the
@@ -415,6 +416,46 @@ mod tests {
         assert_eq!(text_viewport_height(20.0, 2, 1400.0, None), 208.0);
         assert_eq!(text_viewport_height(20.0, 3, 100.0, None), 64.0);
         assert_eq!(text_viewport_height(20.0, 2, 500.0, Some(90.0)), 90.0);
+    }
+
+    #[test]
+    fn reported_text_height_matches_the_space_the_prompt_uses() {
+        let mut h = egui_kittest::Harness::new_ui_state(
+            |ui, (text, text_height, box_height): &mut (String, f32, f32)| {
+                let response = ui.scope(|ui| {
+                    show(
+                        ui,
+                        text,
+                        &[],
+                        PromptBox {
+                            name: "Box",
+                            hint: String::new(),
+                            min_rows: 2,
+                            text_height_limit: Some(90.0),
+                            attach: None,
+                            previews: &[],
+                            stop_button: None,
+                            stopping: false,
+                            send: true,
+                            recall: false,
+                            history: None,
+                            font_size: 14.0,
+                        },
+                    )
+                });
+                *text_height = response.inner.text_height;
+                *box_height = response.response.rect.height();
+            },
+            (String::from("A short draft"), 0.0, 0.0),
+        );
+        h.run();
+        let (_, short_text, short_box) = *h.state();
+        h.state_mut().0 = ["A line"; 20].join("\n");
+        h.run();
+        let (_, long_text, long_box) = *h.state();
+        assert!((long_text - 90.0).abs() < 0.5, "the long draft reaches the limit: {long_text}");
+        assert!(long_box > short_box, "the box grows for a longer draft");
+        assert!(((long_text - short_text) - (long_box - short_box)).abs() < 0.5, "the reported text height grows with the box");
     }
 
     #[test]
