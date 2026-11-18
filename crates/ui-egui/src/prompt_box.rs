@@ -27,6 +27,7 @@ pub struct PromptBox<'a> {
     /// The number of rows visible in an empty editor.
     pub min_rows: usize,
     /// Space a docked composer can spare after accounting for its other controls.
+    /// The viewport still reserves `min_rows` and the editor's padding if this space is smaller.
     pub text_height_limit: Option<f32>,
     /// The paperclip's tooltip; `None` hides it (no attachments here).
     pub attach: Option<&'a str>,
@@ -416,6 +417,11 @@ mod tests {
         assert_eq!(text_viewport_height(20.0, 2, 1400.0, None), 208.0);
         assert_eq!(text_viewport_height(20.0, 3, 100.0, None), 64.0);
         assert_eq!(text_viewport_height(20.0, 2, 500.0, Some(90.0)), 90.0);
+    }
+
+    #[test]
+    fn an_explicit_height_limit_still_leaves_room_for_the_minimum_rows() {
+        assert_eq!(text_viewport_height(20.0, 2, 500.0, Some(10.0)), 44.0);
     }
 
     #[test]
