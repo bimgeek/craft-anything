@@ -191,7 +191,7 @@ mod tests {
                 let b = crate::prompt_box::PromptBox {
                     name: "Ask for a change",
                     hint: String::new(),
-                    rows: (1, 4),
+                    min_rows: 1,
                     attach: attach.then_some("Attach pictures"),
                     previews: &[],
                     stop_button: None,

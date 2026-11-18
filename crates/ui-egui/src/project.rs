@@ -1863,7 +1863,7 @@ fn composer(app: &mut CraftApp, ui: &mut Ui, width: f32, t: &Tokens, last_waitin
             prompt_box::PromptBox {
                 name: "Ask for a change",
                 hint,
-                rows: (1, 8),
+                min_rows: 2,
                 attach: Some("Attach pictures (or drop or paste them here)"),
                 previews: &previews,
                 // The one way to pause (Continue picks up where it stopped).

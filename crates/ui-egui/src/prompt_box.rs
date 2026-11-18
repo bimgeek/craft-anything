@@ -24,8 +24,8 @@ pub struct PromptBox<'a> {
     /// The accessible name, and the id of the text field.
     pub name: &'a str,
     pub hint: String,
-    /// Visible text rows: (at least, at most before it scrolls).
-    pub rows: (usize, usize),
+    /// The number of rows visible in an empty editor.
+    pub min_rows: usize,
     /// The paperclip's tooltip; `None` hides it (no attachments here).
     pub attach: Option<&'a str>,
     /// A small picture of each attachment, in order, once it's decoded (`CraftApp::previews`).
@@ -197,7 +197,8 @@ pub fn show(ui: &mut Ui, text: &mut String, attachments: &[PathBuf], b: PromptBo
                 });
                 ui.add_space(theme::space::SM);
             }
-            let line = ui.fonts_mut(|f| f.row_height(&egui::FontId::proportional(b.font_size)));
+            let font = egui::FontId::proportional(b.font_size);
+            let line = ui.fonts_mut(|f| f.row_height(&font)) + ui.spacing().extra_text_line_spacing;
             // Up at the very start (or in an empty box) takes back the last waiting message; it's
             // consumed before the field sees it, and anywhere else Up moves the cursor as usual.
             // The caller fills the text in after this frame; the cursor goes to its end on the next.
@@ -225,16 +226,19 @@ pub fn show(ui: &mut Ui, text: &mut String, attachments: &[PathBuf], b: PromptBo
             // No "more below" fade: the frame after each keystroke the scroll area briefly
             // measures a few points of overflow, and the fade blinked over the line being typed.
             ui.spacing_mut().scroll.fade.strength = 0.0;
-            let tallest = tallest_text(line, b.rows.1, ui.ctx().content_rect().height());
-            egui::ScrollArea::vertical().id_salt(id.with("scroll")).max_height(tallest + 4.0).stick_to_bottom(true).show(ui, |ui| {
+            let height = text_viewport_height(line, b.min_rows, ui.clip_rect().height());
+            // The feed leaves the box only as much room as it used last frame. Allow the scroll
+            // area to claim more than that as the draft grows. It still shrinks to fit short drafts.
+            let editor = egui::ScrollArea::vertical().id_salt(id.with("scroll")).min_scrolled_height(height).max_height(height).stick_to_bottom(true);
+            editor.show(ui, |ui| {
                 let r = ui.add(
                     egui::TextEdit::multiline(text)
                         .id(id)
                         .hint_text(&b.hint)
                         .frame(egui::Frame::NONE)
-                        .desired_rows(b.rows.0)
+                        .desired_rows(b.min_rows)
                         .desired_width(f32::INFINITY)
-                        .font(egui::FontId::proportional(b.font_size))
+                        .font(font)
                         // Enter sends; Shift+Enter starts a new line.
                         .return_key(Some(egui::KeyboardShortcut::new(egui::Modifiers::SHIFT, egui::Key::Enter)))
                         .event_filter(egui::EventFilter {
@@ -311,10 +315,9 @@ fn fit(size: egui::Vec2, max: egui::Vec2) -> egui::Vec2 {
     size * (max.x / size.x).min(max.y / size.y)
 }
 
-/// How tall the text may grow before it scrolls: the box's own limit of `rows` lines, or
-/// two-fifths of a taller window, so a long prompt shows more of itself there (#473).
-fn tallest_text(line: f32, rows: usize, window: f32) -> f32 {
-    (line * rows as f32).max(window * 0.4)
+/// Leave room for the conversation in short panes. Always fit the empty editor, including its padding.
+fn text_viewport_height(line: f32, min_rows: usize, pane_height: f32) -> f32 {
+    (pane_height * 0.4).min(208.0).max(line * min_rows as f32 + 4.0)
 }
 
 /// What Tab would complete the box to, when it starts with a partial command name. Only the
@@ -400,12 +403,11 @@ pub fn with_attachments(text: &str, files: &[PathBuf], root: &std::path::Path) -
 mod tests {
     use super::*;
 
-    /// #473: eight lines at most, whatever the window, left most of a detailed prompt out of view.
     #[test]
-    fn a_long_prompt_shows_more_of_itself_in_a_tall_window() {
-        assert_eq!(tallest_text(20.0, 8, 300.0), 160.0, "a small window keeps the box's own limit");
-        assert_eq!(tallest_text(20.0, 8, 1400.0), 560.0, "a tall one shows up to two-fifths of it");
-        assert_eq!(tallest_text(20.0, 30, 1000.0), 600.0, "a box allowed more keeps it");
+    fn a_long_prompt_scrolls_sooner_in_a_short_pane() {
+        assert_eq!(text_viewport_height(20.0, 2, 300.0), 120.0);
+        assert_eq!(text_viewport_height(20.0, 2, 1400.0), 208.0);
+        assert_eq!(text_viewport_height(20.0, 3, 100.0), 64.0);
     }
 
     #[test]
@@ -451,7 +453,7 @@ mod tests {
                 let b = PromptBox {
                     name: "Box",
                     hint: String::new(),
-                    rows: (1, 4),
+                    min_rows: 1,
                     attach: Some("Attach"),
                     previews: &previews,
                     stop_button: None,
@@ -508,7 +510,7 @@ mod tests {
                     let b = PromptBox {
                         name: "Ask for a change",
                         hint: String::new(),
-                        rows: (1, 8),
+                        min_rows: 1,
                         attach: None,
                         previews: &[],
                         stop_button: Some("Pause"),
