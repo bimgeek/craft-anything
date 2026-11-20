@@ -19,6 +19,45 @@ fn harness_sized(size: egui::Vec2, make: impl FnOnce() -> CraftApp + 'static) ->
     })
 }
 
+fn painted_draft(h: &Harness<'static, CraftApp>, draft: &str) -> (egui::Rect, egui::Rect) {
+    h.output()
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.text() == draft => Some((text.galley.rect.translate(text.pos.to_vec2()), shape.clip_rect)),
+            _ => None,
+        })
+        .expect("the draft is painted")
+}
+
+#[test]
+fn make_and_ask_show_more_of_a_long_draft_in_a_taller_window() {
+    let draft = ["A line of the draft."; 60].join("\n");
+    for ask in [false, true] {
+        let visible_height = |height| {
+            let text = draft.clone();
+            let mut h = harness_sized(egui::vec2(1280.0, height), move || {
+                let mut app = demo::app(demo::engine(Mode::Beginner, true));
+                if ask {
+                    demo::fill_ask(&mut app);
+                    app.state.input = text.clone();
+                } else {
+                    app.state.screen = Screen::Home;
+                    app.state.make.request = text.clone();
+                }
+                app
+            });
+            h.run_steps(6);
+            let (text, viewport) = painted_draft(&h, &draft);
+            assert!(text.height() > viewport.height(), "the long draft scrolls within the editor");
+            viewport.height()
+        };
+        let shorter = visible_height(950.0);
+        let taller = visible_height(1450.0);
+        assert!(taller > shorter + 100.0, "a taller window shows more of the draft: {shorter} then {taller}, Ask={ask}");
+    }
+}
+
 /// Step until `done` holds (workers run on threads), or give up after a few seconds.
 fn wait(h: &mut Harness<'static, CraftApp>, done: impl Fn(&CraftApp) -> bool) -> bool {
     let start = Instant::now();
@@ -1433,17 +1472,25 @@ fn the_agent_console_prompt_box_starts_tall_and_grows_inside_the_window() {
     assert!(empty >= 50.0, "room for three lines, got {empty}");
     let hint = "Enter to send · Shift+Enter for a new line";
 
-    // Eight lines fit: the field isn't scrolled, so its rect is what's on screen.
-    h.state_mut().state.input = ["a line"; 8].join("\n");
+    // Four lines fit before the compact console starts scrolling.
+    h.state_mut().state.input = ["a line"; 4].join("\n");
     h.run_steps(6);
-    let field = h.get_by_label("Ask a question").rect();
+    let (field, four_lines) = painted_draft(&h, &h.state().state.input);
+    let four_line_height = field.height();
     let (tabs, below) = (h.get_by_label("Agent").rect(), h.get_by_label(hint).rect());
-    assert!(field.height() > empty * 2.0, "it grows as lines are added: {} after {empty}", field.height());
-    assert!(field.top() >= tabs.bottom() && field.bottom() <= below.top(), "all eight lines show: tabs={tabs:?}, field={field:?}, hint={below:?}");
+    assert!(field.height() > empty, "it grows as lines are added: {} after {empty}", field.height());
+    assert!(four_lines.contains_rect(field), "all four lines show: {field:?} inside {four_lines:?}");
+    assert!(field.top() >= tabs.bottom() && field.bottom() <= below.top(), "the field stays between the tabs and send row");
 
     // Past what fits it scrolls, and the console settles with its tabs and send row in the window.
     h.state_mut().state.input = ["a line"; 60].join("\n");
     h.run_steps(6);
+    let (field, long_draft) = painted_draft(&h, &h.state().state.input);
+    assert!(field.height() > long_draft.height(), "the long draft scrolls");
+    assert!(
+        (four_line_height..four_line_height * 1.125).contains(&long_draft.height()),
+        "four lines plus padding fit, while a fifth line needs scrolling: {four_line_height} of text, {long_draft:?}"
+    );
     let (tabs, below) = (h.get_by_label("Agent").rect(), h.get_by_label(hint).rect());
     h.run_steps(20);
     assert_eq!(h.get_by_label("Agent").rect(), tabs, "the console settles");
@@ -2450,18 +2497,7 @@ fn the_prompt_box_is_laid_out_with_its_new_height_in_the_frame_it_grows() {
     h.run_steps(3);
     let field = |h: &Harness<'static, CraftApp>| h.get_by_label("Ask for a change").rect();
     let bottom = |h: &Harness<'static, CraftApp>| field(h).bottom();
-    let draft_rects = |h: &Harness<'static, CraftApp>| {
-        h.output()
-            .shapes
-            .iter()
-            .find_map(|shape| match &shape.shape {
-                egui::Shape::Text(text) if text.galley.text() == h.state().state.project_input => {
-                    Some((text.galley.rect.translate(text.pos.to_vec2()), shape.clip_rect))
-                }
-                _ => None,
-            })
-            .expect("the draft is painted")
-    };
+    let draft_rects = |h: &Harness<'static, CraftApp>| painted_draft(h, &h.state().state.project_input);
     let send_bottom = |h: &Harness<'static, CraftApp>| h.get_by_label("Send (Enter)").rect().bottom();
     let compact = field(&h);
     let before = compact.bottom();

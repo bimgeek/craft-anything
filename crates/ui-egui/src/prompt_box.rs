@@ -26,6 +26,7 @@ pub struct PromptBox<'a> {
     pub hint: String,
     /// The number of rows visible in an empty editor.
     pub min_rows: usize,
+    pub viewport_height: ViewportHeight,
     /// Space a docked composer can spare after accounting for its other controls.
     /// The viewport still reserves `min_rows` and the editor's padding if this space is smaller.
     pub text_height_limit: Option<f32>,
@@ -44,6 +45,13 @@ pub struct PromptBox<'a> {
     /// Earlier prompts, oldest first, for Up and Down; read only when a key asks for them.
     pub history: Option<&'a dyn Fn() -> Vec<Prompt>>,
     pub font_size: f32,
+}
+
+/// How much text the editor can show before it scrolls.
+pub enum ViewportHeight {
+    Pane,
+    PaneWithRowFloor(usize),
+    Rows(usize),
 }
 
 /// Going through earlier prompts: how far back (0 is what was being typed), and what the box
@@ -231,7 +239,7 @@ pub fn show(ui: &mut Ui, text: &mut String, attachments: &[PathBuf], b: PromptBo
             // No "more below" fade: the frame after each keystroke the scroll area briefly
             // measures a few points of overflow, and the fade blinked over the line being typed.
             ui.spacing_mut().scroll.fade.strength = 0.0;
-            let height = text_viewport_height(line, b.min_rows, ui.clip_rect().height(), b.text_height_limit);
+            let height = text_viewport_height(line, b.min_rows, ui.clip_rect().height(), b.viewport_height, b.text_height_limit);
             // The feed leaves the box only as much room as it used last frame. Allow the scroll
             // area to claim more than that as the draft grows. It still shrinks to fit short drafts.
             let editor = egui::ScrollArea::vertical().id_salt(id.with("scroll")).min_scrolled_height(height).max_height(height).stick_to_bottom(true);
@@ -322,10 +330,19 @@ fn fit(size: egui::Vec2, max: egui::Vec2) -> egui::Vec2 {
     size * (max.x / size.x).min(max.y / size.y)
 }
 
-/// Show about ten lines at the normal text size. Leave more room for the conversation and
-/// controls in a short pane, while keeping the empty editor and its padding visible.
-fn text_viewport_height(line: f32, min_rows: usize, pane_height: f32, limit: Option<f32>) -> f32 {
-    (pane_height * 0.4).min(theme::PROMPT_VIEWPORT_MAX).min(limit.unwrap_or(f32::INFINITY)).max(line * min_rows as f32 + 4.0)
+/// Keep the empty editor and its padding visible when other controls need the space.
+fn text_viewport_height(line: f32, min_rows: usize, pane_height: f32, height: ViewportHeight, limit: Option<f32>) -> f32 {
+    let cap = match height {
+        ViewportHeight::Pane => (pane_height * 0.4).max(theme::PROMPT_VIEWPORT_FLOOR),
+        ViewportHeight::PaneWithRowFloor(rows) => tallest_text(line, rows, pane_height) + 4.0,
+        ViewportHeight::Rows(rows) => line * rows as f32 + 4.0,
+    };
+    cap.min(limit.unwrap_or(f32::INFINITY)).max(line * min_rows as f32 + 4.0)
+}
+
+/// A long draft shows more of itself in a tall pane (#473).
+fn tallest_text(line: f32, rows: usize, pane_height: f32) -> f32 {
+    (line * rows as f32).max(pane_height * 0.4)
 }
 
 /// What Tab would complete the box to, when it starts with a partial command name. Only the
@@ -412,16 +429,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_long_prompt_scrolls_sooner_in_a_short_pane() {
-        assert_eq!(text_viewport_height(20.0, 2, 300.0, None), 120.0);
-        assert_eq!(text_viewport_height(20.0, 2, 1400.0, None), 208.0);
-        assert_eq!(text_viewport_height(20.0, 3, 100.0, None), 64.0);
-        assert_eq!(text_viewport_height(20.0, 2, 500.0, Some(90.0)), 90.0);
+    fn a_long_prompt_shows_more_of_itself_in_a_tall_window() {
+        assert_eq!(tallest_text(20.0, 8, 300.0), 160.0, "a small window keeps the box's own limit");
+        assert_eq!(tallest_text(20.0, 8, 1400.0), 560.0, "a tall one shows up to two-fifths of it");
+        assert_eq!(tallest_text(20.0, 30, 1000.0), 600.0, "a box allowed more keeps it");
+        assert_eq!(text_viewport_height(20.0, 2, 300.0, ViewportHeight::Pane, None), 208.0);
+        assert_eq!(text_viewport_height(20.0, 2, 1400.0, ViewportHeight::Pane, None), 560.0);
+        assert_eq!(text_viewport_height(20.0, 2, 500.0, ViewportHeight::Pane, Some(90.0)), 90.0);
     }
 
     #[test]
     fn an_explicit_height_limit_still_leaves_room_for_the_minimum_rows() {
-        assert_eq!(text_viewport_height(20.0, 2, 500.0, Some(10.0)), 44.0);
+        assert_eq!(text_viewport_height(20.0, 2, 500.0, ViewportHeight::Pane, Some(10.0)), 44.0);
     }
 
     #[test]
@@ -437,6 +456,7 @@ mod tests {
                             name: "Box",
                             hint: String::new(),
                             min_rows: 2,
+                            viewport_height: ViewportHeight::Pane,
                             text_height_limit: Some(90.0),
                             attach: None,
                             previews: &[],
@@ -508,6 +528,7 @@ mod tests {
                     name: "Box",
                     hint: String::new(),
                     min_rows: 1,
+                    viewport_height: ViewportHeight::PaneWithRowFloor(4),
                     text_height_limit: None,
                     attach: Some("Attach"),
                     previews: &previews,
@@ -566,6 +587,7 @@ mod tests {
                         name: "Ask for a change",
                         hint: String::new(),
                         min_rows: 1,
+                        viewport_height: ViewportHeight::PaneWithRowFloor(8),
                         text_height_limit: None,
                         attach: None,
                         previews: &[],

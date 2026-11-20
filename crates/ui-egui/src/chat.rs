@@ -346,7 +346,8 @@ fn composer(app: &mut CraftApp, ui: &mut Ui, width: f32, dense: bool) {
             crate::prompt_box::PromptBox {
                 name: "Ask a question",
                 hint,
-                min_rows: if dense { 3 } else { 2 },
+                min_rows: if dense { 3 } else { 1 },
+                viewport_height: if dense { crate::prompt_box::ViewportHeight::Rows(4) } else { crate::prompt_box::ViewportHeight::PaneWithRowFloor(8) },
                 text_height_limit: None,
                 attach: None,
                 previews: &[],

@@ -254,6 +254,7 @@ fn request_box(app: &mut CraftApp, ui: &mut Ui, hint: &str, attach: Option<&str>
             name: "Say what you want",
             hint: tr(hint),
             min_rows: 3,
+            viewport_height: crate::prompt_box::ViewportHeight::PaneWithRowFloor(10),
             text_height_limit: None,
             attach,
             previews: &previews,

@@ -1875,6 +1875,7 @@ fn composer(app: &mut CraftApp, ui: &mut Ui, width: f32, t: &Tokens, last_waitin
                 name: "Ask for a change",
                 hint,
                 min_rows: 2,
+                viewport_height: prompt_box::ViewportHeight::Pane,
                 text_height_limit: Some(text_limit),
                 attach: Some("Attach pictures (or drop or paste them here)"),
                 previews: &previews,
